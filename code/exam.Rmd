@@ -1,0 +1,452 @@
+---
+title: "ANLY 503 Exam"
+author: "Yuqi Wang"
+date: "November 23, 2018"
+output: html_document
+---
+## Three plots with ggplot2
+
+### Read in data
+
+```{r}
+hr_data <- read.csv('Human Resources Data Set/HRDataset_v9.csv') 
+hr_data$Pay.Rate.Level <- as.factor(as.numeric(cut(hr_data$Pay.Rate, 6)))
+
+options(scipen=999)  # turn-off scientific notation like 1e+48
+#remove.packages(c("ggplot2", "data.table"))
+#install.packages('Rcpp', dependencies = TRUE)
+#install.packages('ggplot2', dependencies = TRUE)
+#install.packages('data.table', dependencies = TRUE)
+library(ggplot2)
+```
+
+### ggplot (Pay.Rate vs Sex)
+
+```{r fig1, fig.width = 10, fig.asp = .62}
+theme_set(theme_classic())
+
+# Histogram on a Continuous (Numeric) Variable
+g <- ggplot(hr_data, aes(Pay.Rate)) + scale_fill_brewer(palette = "Spectral")
+
+g + geom_histogram(aes(fill=Sex), 
+                   binwidth = 2, 
+                   col="black", 
+                   size=.1) +  # change binwidth
+  labs(title="Pay Rate Histogram", 
+       subtitle="Pay Rate across two Genders")  
+
+ggsave('payrate_hist.jpg', width = 10, height = 6.2)
+```
+
+
+
+```{r fig2, fig.width = 10, fig.asp = .62}
+
+theme_set(theme_bw())
+
+# Scatterplot
+gg <- ggplot(hr_data, aes(x=Days.Employed, y=Pay.Rate)) + 
+  geom_point(aes(col=Sex)) + 
+  geom_smooth(method="loess", se=F) + 
+  #xlim(c(18, 75)) + 
+  ylim(c(10, 90)) + 
+  labs(subtitle="Pay Rate vs Days Employed", 
+       y="Pay Rate", 
+       x="Days Employed", 
+       title="Scatterplot", 
+       caption = "Source: HR dataset")
+
+plot(gg)
+ggsave('payrate_scatter.jpg', width = 10, height = 6.2)
+
+```
+
+
+
+
+```{r fig3, fig.width = 10, fig.asp = .62}
+
+# plot
+g <- ggplot(hr_data, aes(RaceDesc, Pay.Rate))
+g + geom_boxplot() + 
+  geom_dotplot(binaxis='y', 
+               stackdir='center', 
+               dotsize = .5, 
+               fill="red") +
+  facet_wrap(~ Sex, nrow=1) +
+  theme(axis.text.x = element_text(angle=45, vjust=0.6)) + 
+  labs(title="Box plot + Dot plot", 
+       subtitle="Pay Rate vs Race: Each dot represents 1 row in source data",
+       caption="Source: HR dataset",
+       x="Race",
+       y="Pay Rate")
+  #theme_gray()
+
+ggsave('payrate_boxplot.jpg', width = 10, height = 6.2)
+```
+
+### networkD3
+
+
+```{r}
+
+library(networkD3)
+
+edgeList <- subset(hr_data, select=c("Performance.Score","Pay.Rate"))
+colnames(edgeList) <- c("Source", "Target")
+
+nodeList <- subset(hr_data, select=c("Pay.Rate", "Pay.Rate.Level"))
+colnames(nodeList) <- c("nodeBetweenness", "nodeDegree")
+nodeList['nName'] <- hr_data$Pay.Rate
+(head(nodeList))
+
+
+D3_network <- simpleNetwork(edgeList, Source = 1, Target = 2, height = NULL, width = NULL,
+  linkDistance = 90, charge = -50, fontSize = 15, fontFamily = "serif",
+  linkColour = "#666", nodeColour = "#3182bd", opacity = 0.6, zoom = T)
+
+# Plot network
+D3_network 
+
+
+
+# Save network as html file
+saveNetwork(D3_network, "D3network.html", selfcontained = TRUE)
+
+```
+
+
+D3_network <- forceNetwork(Links = edgeList, # data frame that contains info about edges
+                           Nodes = nodeList, # data frame that contains info about nodes
+                           Source = "Source", # ID of source node 
+                           Target = "Target", # ID of target node
+                           #Value = "Weight", # value from the edge list (data frame) that will be used to value/weight relationship amongst nodes
+                           NodeID = "nName", # value from the node list (data frame) that contains node description we want to use (e.g., node name)
+                           Nodesize = "nodeBetweenness",  # value from the node list (data frame) that contains value we want to use for a node size
+                           Group = "nodeDegree",  # value from the node list (data frame) that contains value we want to use for node color
+                           #height = 500, # Size of the plot (vertical)
+                           #width = 1000,  # Size of the plot (horizontal)
+                           #fontSize = 20, # Font size
+                           #linkDistance = networkD3::JS("function(d) { return 10*d.value; }"), # Function to determine distance between any two nodes, uses variables already defined in forceNetwork function (not variables from a data frame)
+                           #linkWidth = networkD3::JS("function(d) { return d.value/5; }"),# Function to determine link/edge thickness, uses variables already defined in forceNetwork function (not variables from a data frame)
+                           #opacity = 0.65, # opacity
+                           zoom = TRUE) # ability to zoom when click on the node
+                           #opacityNoHover = 0.1) # edge colors
+
+
+
+D3_network 
+
+saveNetwork(D3_network, "D3network.html", selfcontained = TRUE)
+
+
+### Leaflet
+
+```{r}
+#install.packages("tigris")
+#install.packages("dplyr")
+#install.packages("leaflet")
+
+library(tigris)
+library(dplyr)
+library(leaflet)
+library(rgdal)
+
+# Downloading the shapefiles for states at the lowest resolution
+states <- states(cb=T)
+
+state_unemp <- read.csv("Unemployment by state.csv", stringsAsFactors = F)
+state_unemp$X2016 <- state_unemp$X2016*100
+state_unemp$X2015 <- state_unemp$X2015*100
+state_unemp$X2014 <- state_unemp$X2014*100
+
+###############################################
+# Now we use the Tigris function geo_join to bring together 
+# the states shapefile and the sb_states dataframe -- STUSPS and state 
+# are the two columns they'll be joined by
+
+states_merged_sb <- geo_join(states, state_unemp, "STUSPS", "State_abbr")
+#hr_map <- aggregate(Pay.Rate~State, data = hr_data, FUN = mean)
+#i <- sapply(hr_map, is.factor)
+#hr_map[i] <- lapply(hr_map[i], as.character)
+#write.csv(hr_map, file = "hr_map.csv")
+
+hr_map <- read.csv("hr_map.csv", stringsAsFactors = F)
+
+#hr_states <- geo_join(states, hr_map, "STUSPS", "State")
+
+# Creating a color palette based on the number range in the total column
+pal <- colorNumeric("Greens", domain=c(0,10))
+
+
+# Getting rid of rows with NA values
+# Using the Base R method of filtering subset() because we're dealing with a SpatialPolygonsDataFrame and not a normal data frame, thus filter() wouldn't work
+
+states_merged_sb <- subset(states_merged_sb, !is.na(X2016))
+states_merged_sb <- subset(states_merged_sb, !is.na(X2015))
+states_merged_sb <- subset(states_merged_sb, !is.na(X2014))
+
+hr_states <- subset(hr_states, !is.na(Pay.Rate))
+
+# Setting up the pop up text
+popup_sb2016 <- paste0("Umemployment rate in 2016: ", as.character(states_merged_sb$X2016), "%")
+
+popup_sb2015 <- paste0("Umemployment rate in 2015: ", as.character(states_merged_sb$X2015), "%")
+
+popup_sb2014 <- paste0("Umemployment rate in 2014: ", as.character(states_merged_sb$X2014), "%")
+
+popup_pay <- paste0("Average pay rate of employees of our company in State ", as.character(hr_map$State),": $", as.character(hr_map$Pay.Rate))
+
+# Mapping it with the new tiles CartoDB.Positron
+m <- leaflet() %>%
+  addProviderTiles("CartoDB.Positron") %>%
+  setView(-98.483330, 38.712046, zoom = 4) %>% 
+  
+  ### 2016
+  addPolygons(data = states_merged_sb , 
+              group = '2016',
+              fillColor = ~pal(states_merged_sb$X2016), 
+              fillOpacity = 0.7, 
+              weight = 0.2, 
+              smoothFactor = 0.2, 
+              highlight = highlightOptions(
+                  weight = 5,
+                  color = "#666",
+                  fillOpacity = 0.7),
+              label=popup_sb2016,
+              labelOptions = labelOptions(
+    style = list("font-weight" = "normal", padding = "3px 8px"),
+    textsize = "15px",
+    direction = "auto")) %>%
+  
+  ### 2015
+  addPolygons(data = states_merged_sb , 
+              group = '2015',
+              fillColor = ~pal(states_merged_sb$X2015), 
+              fillOpacity = 0.7, 
+              weight = 0.2, 
+              smoothFactor = 0.2, 
+              highlight = highlightOptions(
+                  weight = 5,
+                  color = "#666",
+                  fillOpacity = 0.7),
+              label=popup_sb2015,
+              labelOptions = labelOptions(
+    style = list("font-weight" = "normal", padding = "3px 8px"),
+    textsize = "15px",
+    direction = "auto")) %>%
+  
+  ### 2014
+  addPolygons(data = states_merged_sb , 
+              group = '2014',
+              fillColor = ~pal(states_merged_sb$X2014), 
+              fillOpacity = 0.7, 
+              weight = 0.2, 
+              smoothFactor = 0.2, 
+              highlight = highlightOptions(
+                  weight = 5,
+                  color = "#666",
+                  fillOpacity = 0.7),
+              label=popup_sb2014,
+              labelOptions = labelOptions(
+    style = list("font-weight" = "normal", padding = "3px 8px"),
+    textsize = "15px",
+    direction = "auto")) %>%
+  addLegend(pal = pal, 
+            values = 0:10, 
+            position = "bottomright", 
+            title = "Unemployment Rate") %>% 
+  
+  ### add circle
+  addMarkers(data = hr_map,
+             lat=~lat, lng=~long,
+             group = 'Average Payrate',
+             #radius=~Pay.Rate ,
+             label = popup_pay,
+             labelOptions = labelOptions(noHide = F,opacity=0.9))
+
+
+Groupnames <- c("2016", "2015", "2014")
+
+
+m <- m %>%
+  # Add layers controls
+  addLayersControl(
+    baseGroups = Groupnames,
+    overlayGroups = c('Average Payrate'),
+    options = layersControlOptions(collapsed = FALSE)
+  )
+  # Add common legend
+  #addLegend(colors = c("#4367F4", "#FF0000"),
+  #          labels = c("Zones d'avis", "Zones de TAC"),
+  #          opacity = c(0.8, 0.5))
+
+
+library(htmlwidgets)
+saveWidget(m, file="leafletMap.html")
+
+```
+
+
+### 3d scatter plot
+
+```{r}
+#install.packages('threejs')
+library(threejs)
+library(htmlwidgets)
+library(RColorBrewer)
+
+MyJ3=scatterplot3js(hr_data$Age,hr_data$Pay.Rate, hr_data$Days.Employed,color = c("#377EB8", "#E41A1C","#33CC00")[as.factor(hr_data$CitizenDesc)],axisLabels=c("Age","Pay Rate","Days Employed"),size=0.5)
+
+#Eligible NonCitizen       Non-Citizen       US Citizen
+
+saveWidget(MyJ3, file="hr3D.html")
+
+display.brewer.pal(n = 8, name = 'Set1')
+brewer.pal(n = 8, name = "Set1")
+```
+
+
+
+### plotly
+
+```{r}
+#install.packages("htmlwidgets")
+#install.packages("plotly")
+install.packages("dplyr")
+
+library(plotly)
+library(datasets)
+library(xml2)
+library(htmlwidgets)
+######Plotly MAP
+##set API keys once
+Sys.setenv("plotly_username"="yw545")
+Sys.setenv("plotly_api_key"="4cLtBnFZAahayYzX5d8u")
+
+df <- read.csv("average monthly recruitment resignation rate/average-monthly-recruitment-resignation-rate-by-broad-occupational-group.csv", stringsAsFactors = F)
+df_quarter <- as.data.frame(table(df$quarter))
+df_occ <- as.data.frame(table(df$occupation1))
+x <- df_quarter$Var1
+y1 <- df$recruitment_rate[df$occupation1 == df_occ$Var1[1]]
+y2 <- df$recruitment_rate[df$occupation1 == df_occ$Var1[2]]
+y3 <- df$recruitment_rate[df$occupation1 == df_occ$Var1[3]]
+
+y21 <- df$resignation_rate[df$occupation1 == df_occ$Var1[1]]
+y22 <- df$resignation_rate[df$occupation1 == df_occ$Var1[2]]
+y23 <- df$resignation_rate[df$occupation1 == df_occ$Var1[3]]
+
+data <- data.frame(x, y1, y2, y3)
+
+
+# font style
+f <- list(
+  family = "Courier New, monospace",
+  size = 18,
+  color = "black")
+
+# annotations
+a <- list(
+  text = "Clerical, sales and services workers",
+  font = f,
+  xref = "paper",
+  yref = "paper",
+  yanchor = "bottom",
+  xanchor = "center",
+  align = "center",
+  x = 0.5,
+  y = 1,
+  showarrow = FALSE
+)
+
+b <- list(
+  text = "Production and transport operators, cleaners and labourers",
+  font = f,
+  xref = "paper",
+  yref = "paper",
+  yanchor = "bottom",
+  xanchor = "center",
+  align = "center",
+  x = 0.5,
+  y = 1,
+  showarrow = FALSE
+)
+
+c <- list(
+  text = "Professional, managers, executive and technicians",
+  font = f,
+  xref = "paper",
+  yref = "paper",
+  yanchor = "bottom",
+  xanchor = "center",
+  align = "center",
+  x = 0.5,
+  y = 1,
+  showarrow = FALSE
+)
+
+
+p1 <- plot_ly(data, x = ~x, y = ~y1, name = 'recruitment rate', type = 'scatter', mode = 'lines+markers') %>%
+  add_trace(y = ~y21, name = 'resignation rate', mode = 'lines+markers')  %>%
+  layout(annotations = a)
+
+p2 <- plot_ly(data, x = ~x, y = ~y2, name = 'recruitment rate', type = 'scatter', mode = 'lines+markers') %>%
+  add_trace(y = ~y22, name = 'resignation rate', mode = 'lines+markers')  %>%
+  layout(annotations = b)
+
+p3 <- plot_ly(data, x = ~x, y = ~y3, name = 'recruitment rate', type = 'scatter', mode = 'lines+markers') %>%
+  add_trace(y = ~y23, name = 'resignation rate', mode = 'lines+markers')  %>%
+  layout(annotations = c)
+
+p <- subplot(p1, p2, p3, nrows = 3, shareX = TRUE)  %>%
+  layout(showlegend = T)
+
+
+# Create a shareable link to your chart
+# Set up API credentials: https://plot.ly/r/getting-started
+chart_link = api_create(p, filename="line-mode1")
+chart_link
+
+
+```
+
+
+output: https://plot.ly/~yw545/33.embed
+
+### wordcloud
+
+```{r fig4, fig.width = 10, fig.asp = 1}
+
+#install.packages("wordcloud") # word-cloud generator 
+# Load
+library(wordcloud)
+library(RColorBrewer)
+
+Position <- as.character(hr_data$Position)
+d <- as.data.frame(table(Position))
+
+set.seed(1234)
+wordcloud(words = d$Position, freq = d$Freq, min.freq = 1,
+          max.words=200, random.order=F,
+          colors=brewer.pal(8, "Dark2"))
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
